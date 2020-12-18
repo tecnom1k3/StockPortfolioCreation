@@ -2,23 +2,25 @@ import requests as http
 import pandas as pd
 import json
 import keys
-import firestore
 
-file_name = 'pickedStocks.txt'
+file_name = 'pickedStocks.json'
 api_key = keys.financialmodelingprep_api_key
 
-def saveStocks(stocks, file_name):
-    with open(file_name, 'w') as outfile:
+
+def save_stocks(stocks, target_file_name):
+    with open(target_file_name, 'w') as outfile:
         json.dump(stocks, outfile)
-    
+
     print('Saved')
 
-def retrievePickedStocks(file_name):
-    with open(file_name) as jsonfile:
-        data = json.load(jsonfile)
+
+def retrieve_picked_stocks_from_file(picked_stocks_file_name):
+    with open(picked_stocks_file_name) as json_file:
+        data = json.load(json_file)
         return data
 
-def getStocks():
+
+def get_stocks():
     params = {
         'apikey': api_key
     }
@@ -26,22 +28,22 @@ def getStocks():
     stocks = http.get('https://financialmodelingprep.com/api/v3/stock/list', params)
     return stocks.json()
 
-def pickStocks(allStocks):
+
+def pick_stocks(all_stocks):
     params = {
         'apikey': api_key
     }
 
     picked_stocks = []
-    for stock in allStocks:
-        #! check if keys exist
+    for stock in all_stocks:
+        # ! check if keys exist
         if 'name' not in stock or 'symbol' not in stock:
             continue
 
-        #? ignore foreign companies (American Deposit Receipts)
-        #? ignore foreign companies (contains '.' in name)
+        # ? ignore foreign companies (American Deposit Receipts)
+        # ? ignore foreign companies (contains '.' in name)
         if 'ADR' in stock['name'] or '.' in stock['symbol']:
             continue
-
 
         symbol = stock['symbol']
 
@@ -50,8 +52,8 @@ def pickStocks(allStocks):
         if len(financial_ratios) <= 0:
             continue
         financial_ratios = financial_ratios[0]  # the service returns ratios per year, this gets latest
-        
-        #! check if keys exist
+
+        # ! check if keys exist
         if 'returnOnAssets' not in financial_ratios or 'priceEarningsRatio' not in financial_ratios:
             continue
 
@@ -63,9 +65,9 @@ def pickStocks(allStocks):
 
         print(f'{symbol}: roa={roa}, p-e ratio={pe_ratio}')
 
-        #TODO: Ignore utilities and financial stocks (mutual funds, banks and insurance companies)
-        #TODO: I believe funds are already ignored because pe_ratio would be None
-        #TODO: But still some utilities and financial stocks may remain
+        # TODO: Ignore utilities and financial stocks (mutual funds, banks and insurance companies)
+        # TODO: I believe funds are already ignored because pe_ratio would be None
+        # TODO: But still some utilities and financial stocks may remain
 
         # return on assets must be at least 25%
         # price to earnings ratio of 5 or less may indicate that the year's data is unusual in some way
@@ -80,13 +82,15 @@ def pickStocks(allStocks):
     print('Picked')
     return picked_stocks
 
-def pickNewStocks():
-    stocks = getStocks()
-    picked_stocks = pickStocks(stocks)
-    saveStocks(picked_stocks, file_name)
 
-def evaluatePickedStocks():
-    picked_stocks = retrievePickedStocks(file_name)
+def pick_new_stocks():
+    stocks = get_stocks()
+    picked_stocks = pick_stocks(stocks)
+    save_stocks(picked_stocks, file_name)
+
+
+def evaluate_picked_stocks():
+    picked_stocks = retrieve_picked_stocks_from_file(file_name)
     picked_df = pd.DataFrame(picked_stocks)
 
     # sort by roa to assign first ranking (according to page 56 of TLB that STILL beats the market)
@@ -100,13 +104,12 @@ def evaluatePickedStocks():
     picked_df.sort_values(by=['overall_ranking'], ascending=True, inplace=True)
 
     for i, stock in picked_df.iterrows():
-        picked_df.at[i, 'industry'] = getCompanyIndustry(stock)
+        picked_df.at[i, 'industry'] = get_company_industry(stock)
 
     picked_df.to_excel('best_picks.xlsx')
 
-    firestore.uploadToFirestore(picked_df)
 
-def getCompanyIndustry(stock):
+def get_company_industry(stock):
     params = {
         'apikey': api_key
     }
@@ -118,9 +121,10 @@ def getCompanyIndustry(stock):
         return ''
     return company_profile[0]['industry']
 
+
 if __name__ == "__main__":
-    # pickNewStocks()
-    
+    # pick_new_stocks()
+
     # once gone through the picking, making a ton of requests to the API
     # we can evaluate the stocks saved to the txt file:
-    evaluatePickedStocks()
+    evaluate_picked_stocks()
